@@ -1,0 +1,19 @@
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editor runtime
+editor_settings.json
+*.save.bak.*
+
+# OS
+.DS_Store
+Thumbs.db
