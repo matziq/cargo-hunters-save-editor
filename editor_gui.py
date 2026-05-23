@@ -201,6 +201,10 @@ CATEGORY_NAME_BY_ID = {
 INVENTORY_VIEW_MODES = ("Equipment", "Items")
 INVENTORY_SOURCE_EQUIPMENT_LABEL = "Equipment"
 INVENTORY_SOURCE_ITEMS_LABEL = "Items"
+# Sentinel key (stored in inventory_container_refs and the open-state dict) for
+# the synthetic top-level row that groups loose Items-source rows in Equipment
+# view, so the user can collapse them as one block alongside real containers.
+INVENTORY_GROUP_ITEMS_KEY = "__items_group__"
 
 # Category ID → treeview tag name for row colour coding.
 # Blue   = weapons, ammo, combat
@@ -869,7 +873,9 @@ class EditorGUI(tk.Tk):
         if not IS_FROZEN:
             pull_csv_button = self._tooltip(
                 ttk.Button(top, text="Pull new CSV from game…", command=self._pull_new_csv_from_game),
-                "Extract a fresh item catalog from a Cargo Hunters install folder, back up the current CSV, replace it, then reload the editor.",
+                "Extract a fresh item catalog from a Cargo Hunters install folder "
+                "(e.g. D:\\Steam\\steamapps\\common\\Cargo Hunters), back up the current CSV, "
+                "replace it, then reload the editor.",
             )
             pull_csv_button.grid(row=1, column=4, padx=(4, 0), pady=(4, 0))
 
@@ -2300,9 +2306,26 @@ class EditorGUI(tk.Tk):
             messagebox.showerror("Extractor missing", f"Could not find {extractor}")
             return
 
+        # Up-front guidance so the user knows EXACTLY what to pick in the
+        # folder browser that follows. The picker title alone isn't obvious
+        # enough — this dialog spells out that they need the game install
+        # directory (the one containing CargoHunters_Data) and gives a
+        # concrete example.
+        if not messagebox.askokcancel(
+            "Pick the Cargo Hunters install folder",
+            "On the next screen, browse to the folder where Cargo Hunters is INSTALLED "
+            "(the folder that contains CargoHunters_Data and CargoHunters.exe).\n\n"
+            "Example:\n"
+            "    C:\\Program Files (x86)\\Steam\\steamapps\\common\\Cargo Hunters\n"
+            "    D:\\Steam\\steamapps\\common\\Cargo Hunters\n\n"
+            "Tip: in Steam, right-click the game \u2192 Manage \u2192 Browse local files "
+            "to find this folder, then pick that same folder here.",
+        ):
+            return
+
         initial_dir = DEFAULT_GAME_DIR if DEFAULT_GAME_DIR.exists() else SCRIPT_DIR
         game_dir_raw = filedialog.askdirectory(
-            title="Select Cargo Hunters install folder",
+            title="Select the Cargo Hunters install folder (contains CargoHunters_Data)",
             initialdir=str(initial_dir),
             mustexist=True,
         )
@@ -2313,7 +2336,10 @@ class EditorGUI(tk.Tk):
         expected_data_dir = game_dir / "CargoHunters_Data"
         if not expected_data_dir.exists() and not messagebox.askyesno(
             "Folder does not look like Cargo Hunters",
-            f"Could not find CargoHunters_Data under:\n\n{game_dir}\n\nContinue anyway?",
+            f"Could not find CargoHunters_Data under:\n\n{game_dir}\n\n"
+            "You normally want the install folder (e.g. "
+            "D:\\Steam\\steamapps\\common\\Cargo Hunters), not a subfolder of it.\n\n"
+            "Continue anyway?",
         ):
             return
 
@@ -3344,8 +3370,12 @@ class EditorGUI(tk.Tk):
             for iid_key, (source, item) in items_by_id.items():
                 template_id = item.get("TemplateId", "")
                 role = self._item_role(template_id)
-                if role == "container":
-                    continue  # containers belong in Equipment mode
+                # Items view shows only "container-like" rows: real containers
+                # (backpacks, vests, cases) and weapons (which hold parts).
+                # Loose items and bare weapon parts are hidden here — they
+                # appear in the Equipment view instead.
+                if role not in ("container", "weapon"):
+                    continue
                 if _parent_is_tracked_non_container(item):
                     continue  # nested component; shown under its parent
                 name = names.get(template_id) or template_id[:8] or "<unknown>"
@@ -3560,6 +3590,42 @@ class EditorGUI(tk.Tk):
                 orphan_rows.append((name.lower(), source, item))
 
         orphan_displayed = 0
+        # Synthetic "Items" container row created lazily on first surviving
+        # orphan when group_by_container is on, so the user can collapse all
+        # loose items into one row alongside the real containers.
+        items_group_row_id: Optional[str] = None
+        items_group_parent: str = ""
+
+        def _ensure_items_group_row() -> str:
+            nonlocal items_group_row_id, items_group_parent
+            if items_group_row_id is not None:
+                return items_group_row_id
+            if not group_by_container:
+                # Flat mode: orphans stay at root, no synthetic parent.
+                return ""
+            row_values = (
+                "",  # qty
+                "",  # position
+                "",  # size
+                "",  # type
+                "",  # category
+                "",  # condition
+                "",  # durability
+                INVENTORY_SOURCE_ITEMS_LABEL,
+                "",  # id
+                "",  # template id
+            )
+            row_options = {
+                "text": INVENTORY_SOURCE_ITEMS_LABEL,
+                "values": row_values,
+                "open": self.inventory_container_open_state.get(INVENTORY_GROUP_ITEMS_KEY, True),
+            }
+            new_id = self.inventory_tree.insert("", "end", **row_options)
+            self.inventory_container_refs[new_id] = INVENTORY_GROUP_ITEMS_KEY
+            items_group_row_id = new_id
+            items_group_parent = new_id
+            return new_id
+
         for _key, source, item in sorted(orphan_rows, key=lambda t: t[0]):
             template_id = item.get("TemplateId", "")
             name = names.get(template_id) or template_id[:8] or "<unknown>"
@@ -3602,7 +3668,7 @@ class EditorGUI(tk.Tk):
             icon = self._tree_icon(template_id, name)
             if icon is not None:
                 row_options["image"] = icon
-            row_id = self.inventory_tree.insert("", "end", **row_options)
+            row_id = self.inventory_tree.insert(_ensure_items_group_row(), "end", **row_options)
             iid = item.get("Id") or ""
             if iid:
                 self.inventory_item_refs[row_id] = (source, iid, name)
@@ -3610,11 +3676,25 @@ class EditorGUI(tk.Tk):
             orphan_displayed += 1
             total_items += 1
 
+        # Update the synthetic Items row's label with the count once known.
+        if items_group_row_id is not None and orphan_displayed:
+            self.inventory_tree.item(
+                items_group_row_id,
+                text=f"{INVENTORY_SOURCE_ITEMS_LABEL} ({orphan_displayed} item(s))",
+            )
+
         self._restore_treeview_sort(self.inventory_tree)
         if group_by_container:
+            extra = ""
+            if orphan_displayed and items_group_row_id is not None:
+                extra = f" + {INVENTORY_SOURCE_ITEMS_LABEL} group ({orphan_displayed} item(s))."
+            elif orphan_displayed:
+                extra = f" + {orphan_displayed} top-level item(s)."
+            else:
+                extra = "."
             self.status_var.set(
                 f"Inventory view: {total_items} item(s) across {len(kept_containers)} container(s)"
-                + (f" + {orphan_displayed} top-level item(s)." if orphan_displayed else ".")
+                + extra
             )
         else:
             self.status_var.set(f"Inventory view: {total_items} item(s) in a flat sortable list.")

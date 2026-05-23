@@ -13,6 +13,8 @@ venv/
 # Editor runtime
 editor_settings.json
 *.save.bak.*
+# CSV backups created automatically by the "Pull new CSV from game" button
+*.bak.csv
 
 # OS
 .DS_Store
