@@ -1,6 +1,14 @@
 # Cargo Hunters Save Editor
 
-A local Tkinter-based editor for the Cargo Hunters `offline.save` file. The tool can add items from a CSV catalog, inspect current inventory, repair/refill/top off existing items, split stacks, delete items, and preview exported UI icons.
+A local Tkinter-based editor for the Cargo Hunters `offline.save` file. The tool can add items from a CSV catalog, inspect current inventory, repair/refill/top off existing items, split stacks, delete items, edit character XP and skill levels, and preview exported UI icons.
+
+## Screenshots
+
+| Add new items | Edit current inventory | Edit character |
+| --- | --- | --- |
+| ![Add new items tab](docs/screenshots/add-items-tab.jpg) | ![Edit current inventory tab](docs/screenshots/inventory-tab.jpg) | ![Edit character tab](docs/screenshots/character-tab.jpg) |
+
+(Personal paths and account identifiers are blanked out in these screenshots; they are not edits the editor itself makes.)
 
 ## Quick start (standalone)
 

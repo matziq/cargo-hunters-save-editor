@@ -15,6 +15,10 @@ editor_settings.json
 *.save.bak.*
 # CSV backups created automatically by the "Pull new CSV from game" button
 *.bak.csv
+# One-off helper scripts and raw screenshot sources used to prepare the
+# redacted versions under docs/screenshots/ (kept locally only).
+_redact_screenshots_copilot.py
+cargoHuntersSaveEditor*.jpg
 
 # OS
 .DS_Store
