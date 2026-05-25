@@ -132,10 +132,20 @@ USE_COUNT_TEMPLATE_MAX = {
     "2613c37e-2678-4627-a87d-37dc46274d8a": 100.0,  # Built-in Repair Kit
     "6d249ffa-bd3b-43c2-89fa-4992be7af2a9": 200.0,  # Mini Repair Kit
     "b26c003f-496e-41b3-bc6f-70beaa76ac0e": 500.0,  # Repair Kit
+    "e6ec3bc6-a38e-4f1c-a04d-bf900bf082b3": 1000.0,  # MaRK (Large Medkit / RepairKitLarge_HP)
     "fd065383-2b84-41e8-80fd-041bf8d19ab6": 1600.0,  # MaRS
 
     # Tool consumables.
     "b1c818fa-0ae5-415c-b407-a9c1a92feb14": 3.0,  # Grinder disk
+    "d668d0fc-df69-4eda-b7c2-50c6ed818488": 10.0,  # Grinder disk middle
+    "43dfb4d7-5cf6-4cb0-908f-7111f9a33e32": 5.0,  # Grinder disk premium
+
+    # Body-part mods that use DurabilityComponent_md as their cap (saves store
+    # only DurabilityComponent_durability). Of the seven Mod_* templates, only
+    # Mod_Armor_01 uses this durability component; the others degrade via the
+    # Condition_d / Condition_mt fields handled separately. Cap value comes
+    # from the game's item_templates TextAsset (component $t=28063).
+    "343734f4-6c77-4370-a73c-d9ccdc101a15": 15.0,  # Mod_Armor_01 (Structure)
 }
 
 # StackableComponent_quantity maxima. Explicit values cover known special cases;
@@ -367,6 +377,7 @@ def set_items_condition_durability_full(
     stats = {
         "matched": 0,
         "changed": 0,
+        "repaired": 0,
         "condition": 0,
         "durability": 0,
         "uses": 0,
@@ -392,6 +403,7 @@ def set_items_condition_durability_full(
             additional = item.setdefault("AdditionalData", {})
             ad = additional.setdefault("_data", {})
             changed = False
+            repaired = False
             had_stat = False
 
             if "Condition_d" in ad or "Condition_mt" in ad:
@@ -400,9 +412,11 @@ def set_items_condition_durability_full(
                 if ad.get("Condition_mt") != target:
                     ad["Condition_mt"] = target
                     changed = True
+                    repaired = True
                 if ad.get("Condition_d") != target:
                     ad["Condition_d"] = target
                     changed = True
+                    repaired = True
                 stats["condition"] += 1
 
             has_durability_fields = (
@@ -428,12 +442,14 @@ def set_items_condition_durability_full(
                     elif ad.get("DurabilityComponent_durability") != uses_target:
                         ad["DurabilityComponent_durability"] = uses_target
                         changed = True
+                        repaired = True
                         stats["uses"] += 1
                     else:
                         stats["uses"] += 1
                 elif ad.get("DurabilityComponent_durability") != target:
                     ad["DurabilityComponent_durability"] = target
                     changed = True
+                    repaired = True
                     stats["durability"] += 1
                 else:
                     stats["durability"] += 1
@@ -463,6 +479,8 @@ def set_items_condition_durability_full(
 
             if not had_stat:
                 stats["skipped_no_stats"] += 1
+            if repaired:
+                stats["repaired"] += 1
             if changed:
                 stats["changed"] += 1
 

@@ -802,6 +802,48 @@ class EditorGUI(tk.Tk):
         self.style = ttk.Style(self)
         self.style.configure("Treeview", rowheight=24)
 
+        # Named style for the green-highlighted destination combobox in Add Items.
+        self.style.configure(
+            "Green.TCombobox",
+            fieldbackground="#dcfce7",
+            background="#16a34a",
+            foreground="#14532d",
+            arrowcolor="#14532d",
+        )
+        self.style.map(
+            "Green.TCombobox",
+            fieldbackground=[("readonly", "#dcfce7"), ("disabled", "#f0fdf4")],
+            foreground=[("readonly", "#14532d"), ("disabled", "#6b7280")],
+        )
+
+        # Shared kwargs for accent-coloured tk.Button highlights. ttk.Button does
+        # not reliably honour background colours on Windows's native theme, so we
+        # drop down to tk.Button for the action highlights the user asked for.
+        self._accent_button_blue = {
+            "bg": "#2563eb",
+            "fg": "#ffffff",
+            "activebackground": "#1d4ed8",
+            "activeforeground": "#ffffff",
+            "disabledforeground": "#cbd5f5",
+            "relief": "raised",
+            "bd": 2,
+            "padx": 8,
+            "pady": 2,
+            "cursor": "hand2",
+        }
+        self._accent_button_green = {
+            **self._accent_button_blue,
+            "bg": "#16a34a",
+            "activebackground": "#15803d",
+            "disabledforeground": "#bbf7d0",
+        }
+        self._accent_button_red = {
+            **self._accent_button_blue,
+            "bg": "#dc2626",
+            "activebackground": "#b91c1c",
+            "disabledforeground": "#fecaca",
+        }
+
         top = ttk.LabelFrame(self, text="Setup - verify these before editing", padding=8)
         top.pack(fill="x")
 
@@ -884,7 +926,12 @@ class EditorGUI(tk.Tk):
             "The inventory/equipment/shelter container where newly added items will be placed.",
         ).grid(row=2, column=0, sticky="w", pady=(4, 0))
         self.dest_var = tk.StringVar()
-        self.dest_combo = ttk.Combobox(top, textvariable=self.dest_var, state="readonly")
+        self.dest_combo = ttk.Combobox(
+            top,
+            textvariable=self.dest_var,
+            state="readonly",
+            style="Green.TCombobox",
+        )
         self._tooltip(
             self.dest_combo,
             "Destination container for newly added items. Changing it updates the suggested grid width.",
@@ -1110,7 +1157,12 @@ class EditorGUI(tk.Tk):
             hint_label.grid(row=r, column=2, sticky="w")
 
         add_button = self._tooltip(
-            ttk.Button(right, text="Step 4: Add selected item(s) to destination", command=self._do_add),
+            tk.Button(
+                right,
+                text="Step 4: Add selected item(s) to destination",
+                command=self._do_add,
+                **self._accent_button_green,
+            ),
             "Add all selected item rows to the selected destination container. Ctrl/Shift-click to select multiple items. A timestamped backup is created before each save change.",
         )
         add_button.pack(fill="x", pady=8)
@@ -1171,29 +1223,54 @@ class EditorGUI(tk.Tk):
         inv_action_row.pack(fill="x", pady=(0, 4))
         ttk.Label(inv_action_row, text="Selected rows:").pack(side="left")
         split_stack_button = self._tooltip(
-            ttk.Button(inv_action_row, text="Split one stack", command=self._split_selected_inventory_stack),
+            tk.Button(
+                inv_action_row,
+                text="Split one stack",
+                command=self._split_selected_inventory_stack,
+                **self._accent_button_blue,
+            ),
             "Split one selected stackable item into two stacks using a slider. Requires a selected item row with a stored stack quantity.",
         )
         split_stack_button.pack(side="left", padx=(4, 0))
         repair_selected_button = self._tooltip(
-            ttk.Button(inv_action_row, text="Repair/refill selected", command=self._repair_selected_inventory_items),
+            tk.Button(
+                inv_action_row,
+                text="Repair/refill selected",
+                command=self._repair_selected_inventory_items,
+                **self._accent_button_blue,
+            ),
             "Set selected item rows to 100% condition/durability, refill known uses, and top off known stack sizes. Creates a backup if anything changes.",
         )
         repair_selected_button.pack(side="left", padx=(4, 0))
         ttk.Label(inv_action_row, text="All visible sources:").pack(side="left", padx=(14, 0))
         repair_all_button = self._tooltip(
-            ttk.Button(inv_action_row, text="Repair/refill/top off ALL", command=self._repair_all_inventory_items),
+            tk.Button(
+                inv_action_row,
+                text="Repair/refill/top off ALL",
+                command=self._repair_all_inventory_items,
+                **self._accent_button_green,
+            ),
             "Scan all non-shelter inventory/equipment items, then repair/refill/top off everything with known max values. Creates a backup if anything changes.",
         )
         repair_all_button.pack(side="left", padx=(4, 0))
         ttk.Label(inv_action_row, text="Danger zone:").pack(side="left", padx=(14, 0))
         move_selected_button = self._tooltip(
-            ttk.Button(inv_action_row, text="Move selected\u2026", command=self._move_selected_inventory_items),
+            tk.Button(
+                inv_action_row,
+                text="Move selected\u2026",
+                command=self._move_selected_inventory_items,
+                **self._accent_button_red,
+            ),
             "Move selected items into a chosen container. Containers carry their contents with them. Checks the destination grid has enough free slots; warns if not.",
         )
         move_selected_button.pack(side="left", padx=(4, 0))
         delete_selected_button = self._tooltip(
-            ttk.Button(inv_action_row, text="Delete selected", command=self._delete_selected_inventory_items),
+            tk.Button(
+                inv_action_row,
+                text="Delete selected",
+                command=self._delete_selected_inventory_items,
+                **self._accent_button_red,
+            ),
             "Delete selected item rows from the save. Container header rows are ignored. A timestamped backup is created first.",
         )
         delete_selected_button.pack(side="left", padx=(4, 0))
@@ -1412,7 +1489,12 @@ class EditorGUI(tk.Tk):
             "Discard any unsaved edits in this tab and reload values from the save file.",
         ).pack(side="left")
         self._tooltip(
-            ttk.Button(action_bar, text="Apply character changes", command=self._apply_character_changes),
+            tk.Button(
+                action_bar,
+                text="Apply character changes",
+                command=self._apply_character_changes,
+                **self._accent_button_red,
+            ),
             "Validate the editable fields, write a backup, and update the save with the new nickname, level, XP, next goal, and skill points.",
         ).pack(side="left", padx=(8, 0))
 
@@ -1810,6 +1892,12 @@ class EditorGUI(tk.Tk):
         _set_str("inventory_view_mode_var", "inventory_view_mode")
         _set_bool("inventory_weapons_first_var", "inventory_weapons_first")
 
+        open_state = data.get("inventory_container_open_state")
+        if isinstance(open_state, dict):
+            self.inventory_container_open_state = {
+                str(k): bool(v) for k, v in open_state.items() if isinstance(k, str)
+            }
+
         geom = data.get("window_geometry")
         if isinstance(geom, str) and re.match(r"^\d+x\d+([+-]\d+[+-]\d+)?$", geom):
             try:
@@ -1837,6 +1925,11 @@ class EditorGUI(tk.Tk):
             data["inventory_view_mode"] = self.inventory_view_mode_var.get()
         if hasattr(self, "inventory_weapons_first_var"):
             data["inventory_weapons_first"] = bool(self.inventory_weapons_first_var.get())
+        if isinstance(getattr(self, "inventory_container_open_state", None), dict):
+            # Persist tree expand/collapse state so it survives between sessions.
+            data["inventory_container_open_state"] = {
+                str(k): bool(v) for k, v in self.inventory_container_open_state.items()
+            }
         try:
             data["window_geometry"] = self.geometry()
         except tk.TclError:
@@ -2588,10 +2681,23 @@ class EditorGUI(tk.Tk):
         if group_by_category:
             for category in sorted(grouped, key=str.lower):
                 rows = sorted(grouped[category], key=lambda r: _catalog_display_name(r).lower())
+                # Colour the category header to match its items. "Uncategorized"
+                # intentionally stays black so new/unmapped items stand out
+                # after a game update until they're added to CATEGORY_COLOR_TAG.
+                if category == "Uncategorized":
+                    group_tag = ""
+                else:
+                    tag_counts: dict[str, int] = {}
+                    for r in rows:
+                        t = self._color_tag(r.get("CategoryID", ""))
+                        if t:
+                            tag_counts[t] = tag_counts.get(t, 0) + 1
+                    group_tag = max(tag_counts, key=tag_counts.get) if tag_counts else ""
                 group_options = {
                     "text": f"{category} ({len(rows)})",
                     "values": ("", "", category, "", "", "", "", ""),
                     "open": self.add_category_open_state.get(category, True),
+                    "tags": (group_tag,) if group_tag else (),
                 }
                 category_icon = self._tree_category_icon(category, rows)
                 if category_icon is not None:
@@ -3362,7 +3468,22 @@ class EditorGUI(tk.Tk):
                     if row_id is None:
                         continue
                     count += 1
-                    count += _insert_descendants_recursive(row_id, child_id)
+                    nested = _insert_descendants_recursive(row_id, child_id)
+                    if nested:
+                        count += nested
+                        # Track open state for nested rows that themselves act
+                        # as expandable parents (e.g. receiver -> barrel -> FH
+                        # chains). Without this, switching tabs / refreshing
+                        # always collapses inner sub-parts even when the user
+                        # had them expanded.
+                        child_iid = child.get("Id") or ""
+                        if child_iid:
+                            container_key = f"{src}:{child_iid}"
+                            self.inventory_tree.item(
+                                row_id,
+                                open=self.inventory_container_open_state.get(container_key, False),
+                            )
+                            self.inventory_container_refs[row_id] = container_key
                 return count
 
             weapons_first = bool(self.inventory_weapons_first_var.get()) if hasattr(self, "inventory_weapons_first_var") else False
@@ -4175,8 +4296,8 @@ class EditorGUI(tk.Tk):
         self.log.insert(
             "end",
             "Set selected items to 100%: "
-            f"matched={stats['matched']} changed={stats['changed']} "
-            f"condition={stats['condition']} durability={stats['durability']} uses={stats['uses']} stacks={stats['stacks']} "
+            f"matched={stats['matched']} repaired={stats['repaired']} topped_off={stats['stacks']} "
+            f"condition={stats['condition']} durability={stats['durability']} uses={stats['uses']} "
             f"skipped_no_stats={stats['skipped_no_stats']} "
             f"skipped_unknown_use_max={stats['skipped_uses_unknown_max']} "
             f"skipped_unknown_stack_max={stats['skipped_stack_unknown_max']}\n",
@@ -4184,7 +4305,9 @@ class EditorGUI(tk.Tk):
         self.log.see("end")
         self._refresh_containers()
         if stats["changed"]:
-            self.status_var.set(f"Set {stats['changed']} selected item(s) to 100%.")
+            self.status_var.set(
+                f"Selected items: {stats['repaired']} repaired, {stats['stacks']} topped off."
+            )
         elif stats["matched"] and stats["skipped_no_stats"] == stats["matched"]:
             self.status_var.set("Selected item(s) do not store condition/durability stats in the save.")
         else:
@@ -4249,8 +4372,8 @@ class EditorGUI(tk.Tk):
         self.log.insert(
             "end",
             "Repair/refill/top off ALL: "
-            f"matched={stats['matched']} changed={stats['changed']} "
-            f"condition={stats['condition']} durability={stats['durability']} uses={stats['uses']} stacks={stats['stacks']} "
+            f"matched={stats['matched']} repaired={stats['repaired']} topped_off={stats['stacks']} "
+            f"condition={stats['condition']} durability={stats['durability']} uses={stats['uses']} "
             f"skipped_no_stats={stats['skipped_no_stats']} "
             f"skipped_unknown_use_max={stats['skipped_uses_unknown_max']} "
             f"skipped_unknown_stack_max={stats['skipped_stack_unknown_max']}\n",
@@ -4260,7 +4383,7 @@ class EditorGUI(tk.Tk):
         if stats["changed"]:
             self.status_var.set(
                 "Repair/refill/top off ALL complete: "
-                f"{stats['changed']} item(s) changed, {stats['stacks']} stack(s) topped off."
+                f"{stats['repaired']} item(s) repaired, {stats['stacks']} stack(s) topped off."
                 f" ({stats['skipped_no_stats']} item(s) have no repairable stats — that is expected for resources, valuables, etc.)"
             )
         else:

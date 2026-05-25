@@ -65,7 +65,11 @@ python editor_gui.py
 
 ## Add Items screen
 
-The **Add new items** screen is organized as a four-step workflow: find item(s), confirm the selection, adjust optional add settings, then add them to the selected destination. The item list can be grouped by visual category or shown as a flat sortable list. Category rows can be expanded/collapsed, and the editor remembers category collapse state between filtering, sorting, adding items, and refreshes.
+The **Add new items** screen is organized as a four-step workflow: find item(s), confirm the selection, adjust optional add settings, then add them to the selected destination. The item list can be grouped by visual category or shown as a flat sortable list. Category rows can be expanded/collapsed, and the editor remembers category collapse state between filtering, sorting, adding items, refreshes, **and between editor sessions**.
+
+Category headers (e.g. **Ammo**, **Armor**, **Repair Kit**) are tinted to match the color of their items, so the color coding is visible even when the category is collapsed. Any items the editor does not yet recognise are grouped under **Uncategorized** in the default black color so new entries are easy to spot after a game update.
+
+The **3. Add destination** dropdown and the **Step 4: Add selected item(s) to destination** button are highlighted in green to flag the active write target.
 
 Use normal click for one item, or **Ctrl/Shift-click** to select multiple item rows. The add settings apply to every selected item row. For example, if **Count** is `2` and three item rows are selected, the editor adds two instances/stacks of each selected item.
 
@@ -110,7 +114,13 @@ GUID fields such as `ItemID`, `TemplateID`, and save item instance IDs are displ
 
 ## Current Inventory screen
 
-The **Edit current inventory** screen shows non-shelter save contents grouped by container. It includes the `inventory` and `equipment` sources, but intentionally hides the `shelter` source. View controls and edit actions are separated to make it clearer which actions apply to selected rows and which actions scan all visible sources. Container collapse state is remembered between refreshes and actions.
+The **Edit current inventory** screen shows non-shelter save contents grouped by container. It includes the `inventory` and `equipment` sources, but intentionally hides the `shelter` source. View controls and edit actions are separated to make it clearer which actions apply to selected rows and which actions scan all visible sources. Container collapse state is remembered between refreshes, actions, **and between editor sessions** — the same expand/collapse pattern is restored next time you open the editor.
+
+Action buttons are color-coded so the consequence of each click is obvious at a glance:
+
+- Blue: `Split one stack`, `Repair/refill selected`.
+- Green: `Repair/refill/top off ALL`.
+- Red (Danger zone): `Move selected…`, `Delete selected`.
 
 Use **Group by containers** to switch between the normal container-grouped view and a flat sortable list of all visible inventory items.
 
@@ -126,6 +136,7 @@ Use **Group by containers** to switch between the normal container-grouped view 
 | **Split stack** | Splits one selected stackable item row into two stacks using a slider. |
 | **Repair/refill selected** | Sets selected items to 100% condition/durability, refills known uses, and tops off known stack sizes. |
 | **Repair/refill/top off ALL** | Scans all non-shelter inventory/equipment items and repairs/refills/tops off everything with known max values. |
+| **Move selected…** | Move selected items into a chosen destination container. Children of moved containers travel with them; capacity is validated before the write. |
 | **Delete selected** | Deletes selected item rows. Container header rows are ignored. |
 | **Filter** | Filters inventory by item name, category, source, quantity, condition, durability, or saved non-ID stats. GUID fields are intentionally not searched. |
 
@@ -145,6 +156,7 @@ The editor repairs and refills by editing item `AdditionalData._data` values in 
 - Full condition is treated as `4.0`.
 - Durability is set to the item maximum when a max value is stored.
 - Known use-count/health items are refilled to known max values, including MaRS at `1600`.
+- Body-part mods that store only `DurabilityComponent_durability` (no `_md` sibling) are now repaired too. The Structure body-part mod (`Mod_Armor_01`) is restored to its catalog cap of `15.0`, and Grinder disk *middle* / *premium* are restored to `10.0` / `5.0` respectively.
 - Known stackable items are topped off to `StackCapacity` from `all_items_detailed.csv` or built-in known stack sizes.
 - Stackable items missing `StackableComponent_quantity` are displayed as an implicit `1 / max` when a max stack is known; top-off can add the missing quantity field.
 
