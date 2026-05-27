@@ -1094,6 +1094,8 @@ class EditorGUI(tk.Tk):
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         self.tree.bind("<<TreeviewOpen>>", self._on_add_tree_open)
         self.tree.bind("<<TreeviewClose>>", self._on_add_tree_close)
+        self.tree.bind("<Home>", self._on_tree_home)
+        self.tree.bind("<End>", self._on_tree_end)
 
         ysb = ttk.Scrollbar(left, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=ysb.set)
@@ -1225,11 +1227,11 @@ class EditorGUI(tk.Tk):
         split_stack_button = self._tooltip(
             tk.Button(
                 inv_action_row,
-                text="Split one stack",
+                text="Split stack",
                 command=self._split_selected_inventory_stack,
                 **self._accent_button_blue,
             ),
-            "Split one selected stackable item into two stacks using a slider. Requires a selected item row with a stored stack quantity.",
+            "Split selected stackable items. With one stack selected, a slider lets you choose the split amount. With multiple stacks selected, each is split in half automatically. Non-stacked rows in the selection are ignored.",
         )
         split_stack_button.pack(side="left", padx=(4, 0))
         repair_selected_button = self._tooltip(
@@ -1319,6 +1321,18 @@ class EditorGUI(tk.Tk):
         )
         weapons_first_check.grid(row=0, column=7, sticky="e", padx=(10, 0))
 
+        inv_keys_hint = ttk.Label(
+            inventory_tab,
+            text=(
+                "Keyboard: S = toggle Show (Equipment/Items)   "
+                "C = jump to next container   "
+                "Home/End = first/last row   "
+                "Delete = delete selected"
+            ),
+            foreground="#475569",
+        )
+        inv_keys_hint.pack(anchor="w", pady=(2, 2))
+
         inv_cols = ("qty", "pos", "size", "type", "category", "condition", "durability", "source", "id", "template")
         self.inventory_tree = ttk.Treeview(
             inventory_tab,
@@ -1370,6 +1384,12 @@ class EditorGUI(tk.Tk):
         self.inventory_tree.bind("<<TreeviewClose>>", self._on_inventory_tree_close)
         self.inventory_tree.bind("<Delete>", self._on_inventory_delete_key)
         self.inventory_tree.bind("<KP_Delete>", self._on_inventory_delete_key)
+        self.inventory_tree.bind("<Home>", self._on_tree_home)
+        self.inventory_tree.bind("<End>", self._on_tree_end)
+        self.inventory_tree.bind("<KeyPress-s>", self._on_inventory_cycle_show_key)
+        self.inventory_tree.bind("<KeyPress-S>", self._on_inventory_cycle_show_key)
+        self.inventory_tree.bind("<KeyPress-c>", self._on_inventory_cycle_container_key)
+        self.inventory_tree.bind("<KeyPress-C>", self._on_inventory_cycle_container_key)
 
         inv_ysb = ttk.Scrollbar(inventory_tab, orient="vertical", command=self.inventory_tree.yview)
         self.inventory_tree.configure(yscrollcommand=inv_ysb.set)
@@ -1379,6 +1399,14 @@ class EditorGUI(tk.Tk):
 
         self.status_var = tk.StringVar(value="Ready.")
         ttk.Label(self, textvariable=self.status_var, anchor="w", relief="sunken").pack(fill="x")
+
+        # Toplevel shortcuts so S / C / Home / End work on the Current Inventory
+        # screen even when focus is on the toolbar, a button or the combobox
+        # rather than on the tree itself. _on_global_inventory_shortcut gates
+        # on active_view and bails out when an editable widget is focused.
+        for seq in ("<KeyPress-s>", "<KeyPress-S>", "<KeyPress-c>", "<KeyPress-C>", "<Home>", "<End>"):
+            self.bind(seq, self._on_global_inventory_shortcut)
+
         self._show_view("add")
 
     def _apply_view_theme(self, view: str) -> None:
@@ -1415,6 +1443,10 @@ class EditorGUI(tk.Tk):
         if view == "inventory":
             self.inventory_view.pack(fill="both", expand=True)
             self._refresh_inventory_view()
+            # Give the tree keyboard focus so Home/End/S/C work immediately
+            # without the user needing to click a row first.
+            if hasattr(self, "inventory_tree"):
+                self.after_idle(self.inventory_tree.focus_set)
         elif view == "character":
             self.character_view.pack(fill="both", expand=True)
             self._refresh_character_view()
@@ -3487,47 +3519,80 @@ class EditorGUI(tk.Tk):
                 return count
 
             weapons_first = bool(self.inventory_weapons_first_var.get()) if hasattr(self, "inventory_weapons_first_var") else False
+
+            def _has_weapon_ancestor(it: dict) -> bool:
+                visited: set[str] = set()
+                cur_id = it.get("ParentId") or ""
+                while cur_id and cur_id not in visited:
+                    visited.add(cur_id)
+                    entry = items_by_id.get(cur_id)
+                    if not entry:
+                        return False
+                    if self._item_role(entry[1].get("TemplateId", "")) == "weapon":
+                        return True
+                    cur_id = entry[1].get("ParentId") or ""
+                return False
+
             top_level: list[tuple[int, str, str, dict]] = []
-            for iid_key, (source, item) in items_by_id.items():
-                template_id = item.get("TemplateId", "")
-                role = self._item_role(template_id)
-                # Items view shows only "container-like" rows: real containers
-                # (backpacks, vests, cases) and weapons (which hold parts).
-                # Loose items and bare weapon parts are hidden here — they
-                # appear in the Equipment view instead.
-                if role not in ("container", "weapon"):
-                    continue
-                if _parent_is_tracked_non_container(item):
-                    continue  # nested component; shown under its parent
-                name = names.get(template_id) or template_id[:8] or "<unknown>"
-                has_children = bool(children_by_parent.get(iid_key))
-                # "Expandable on top" groups expandable items (group 0) before
-                # flat ones (group 1). When the option is off, all share group 0.
-                group_key = 0 if (has_children and weapons_first) else (1 if weapons_first else 0)
-                top_level.append((group_key, name.lower(), source, item))
+            if group_by_container:
+                for iid_key, (source, item) in items_by_id.items():
+                    template_id = item.get("TemplateId", "")
+                    role = self._item_role(template_id)
+                    # Items view shows only "container-like" rows: real containers
+                    # (backpacks, vests, cases) and weapons (which hold parts).
+                    # Loose items and bare weapon parts are hidden here — they
+                    # appear in the Equipment view instead.
+                    if role not in ("container", "weapon"):
+                        continue
+                    if _parent_is_tracked_non_container(item):
+                        continue  # nested component; shown under its parent
+                    name = names.get(template_id) or template_id[:8] or "<unknown>"
+                    has_children = bool(children_by_parent.get(iid_key))
+                    # "Expandable on top" groups expandable items (group 0) before
+                    # flat ones (group 1). When the option is off, all share group 0.
+                    group_key = 0 if (has_children and weapons_first) else (1 if weapons_first else 0)
+                    top_level.append((group_key, name.lower(), source, item))
+            else:
+                # Flat list: every tracked item appears as its own top-level row.
+                # Weapon parts attached to a weapon are still hidden so a gun
+                # reads as a single row, matching Equipment-mode flat behavior.
+                for iid_key, (source, item) in items_by_id.items():
+                    template_id = item.get("TemplateId", "")
+                    role = self._item_role(template_id)
+                    if role == "weapon_part" and _has_weapon_ancestor(item):
+                        continue
+                    name = names.get(template_id) or template_id[:8] or "<unknown>"
+                    top_level.append((0, name.lower(), source, item))
 
             for _gk, _name_key, source, item in sorted(top_level, key=lambda t: (t[0], t[1])):
                 template_id = item.get("TemplateId", "")
                 iid = item.get("Id") or ""
                 name = names.get(template_id) or template_id[:8] or "<unknown>"
                 if filter_query:
-                    if not _row_matches_filter_items(source, item, name) and not _any_descendant_matches(iid):
-                        continue
+                    if group_by_container:
+                        if not _row_matches_filter_items(source, item, name) and not _any_descendant_matches(iid):
+                            continue
+                    else:
+                        if not _row_matches_filter_items(source, item, name):
+                            continue
                 row_id = _insert_leaf_row_items("", source, item)
                 if row_id is None:
                     continue
-                descendant_count = _insert_descendants_recursive(row_id, iid)
-                if descendant_count:
-                    self.inventory_tree.item(
-                        row_id,
-                        text=f"{name} ({descendant_count})",
-                        open=self.inventory_container_open_state.get(f"{source}:{iid}", True),
-                    )
-                    self.inventory_container_refs[row_id] = f"{source}:{iid}"
-                total_items += 1 + descendant_count
+                if group_by_container:
+                    descendant_count = _insert_descendants_recursive(row_id, iid)
+                    if descendant_count:
+                        self.inventory_tree.item(
+                            row_id,
+                            text=f"{name} ({descendant_count})",
+                            open=self.inventory_container_open_state.get(f"{source}:{iid}", True),
+                        )
+                        self.inventory_container_refs[row_id] = f"{source}:{iid}"
+                    total_items += 1 + descendant_count
+                else:
+                    total_items += 1
 
             self._restore_treeview_sort(self.inventory_tree)
-            if weapons_first:
+            if group_by_container and weapons_first:
                 # _restore_treeview_sort re-sorts top-level rows by the active
                 # column, wiping our expandable-first grouping. Re-apply it now
                 # while preserving the column-sorted order within each group.
@@ -3536,9 +3601,14 @@ class EditorGUI(tk.Tk):
                 flat = [r for r in top_rows if r not in self.inventory_container_refs]
                 for index, row_id in enumerate(expandable + flat):
                     self.inventory_tree.move(row_id, "", index)
-            self.status_var.set(
-                f"Inventory view: {total_items} row(s) (Items mode; items with parts are expandable)."
-            )
+            if group_by_container:
+                self.status_var.set(
+                    f"Inventory view: {total_items} row(s) (Items mode; items with parts are expandable)."
+                )
+            else:
+                self.status_var.set(
+                    f"Inventory view: {total_items} item(s) in a flat sortable list."
+                )
             return
 
         self.inventory_tree.heading("#0", text="Item / container" if group_by_container else "Item")
@@ -3859,6 +3929,178 @@ class EditorGUI(tk.Tk):
         self._delete_selected_inventory_items()
         return "break"
 
+    # ------------------------------------------------------------------ Tree keyboard nav
+
+    @staticmethod
+    def _tree_first_visible_row(tree: ttk.Treeview) -> str:
+        """Return the first row id at the top of the tree, or "" if empty."""
+        children = tree.get_children("")
+        return children[0] if children else ""
+
+    @staticmethod
+    def _tree_last_visible_row(tree: ttk.Treeview) -> str:
+        """Return the last visible row id, descending through any open groups."""
+        children = tree.get_children("")
+        if not children:
+            return ""
+        current = children[-1]
+        while tree.item(current, "open"):
+            kids = tree.get_children(current)
+            if not kids:
+                break
+            current = kids[-1]
+        return current
+
+    @staticmethod
+    def _tree_select_focus(tree: ttk.Treeview, row_id: str) -> None:
+        tree.selection_set(row_id)
+        tree.focus(row_id)
+        tree.see(row_id)
+
+    def _on_tree_home(self, event) -> str:
+        tree = event.widget
+        if not isinstance(tree, ttk.Treeview):
+            return ""
+        row_id = self._tree_first_visible_row(tree)
+        if row_id:
+            self._tree_select_focus(tree, row_id)
+        return "break"
+
+    def _on_tree_end(self, event) -> str:
+        tree = event.widget
+        if not isinstance(tree, ttk.Treeview):
+            return ""
+        row_id = self._tree_last_visible_row(tree)
+        if row_id:
+            self._tree_select_focus(tree, row_id)
+        return "break"
+
+    def _on_inventory_cycle_show_key(self, _event: object = None) -> str:
+        """S key: cycle the Show selector between Equipment and Items."""
+        modes = list(INVENTORY_VIEW_MODES)
+        if not modes:
+            return "break"
+        current = self.inventory_view_mode_var.get() if hasattr(self, "inventory_view_mode_var") else modes[0]
+        try:
+            idx = modes.index(current)
+        except ValueError:
+            idx = -1
+        new_mode = modes[(idx + 1) % len(modes)]
+        self.inventory_view_mode_var.set(new_mode)
+        self._refresh_inventory_view()
+        self.status_var.set(f"Show: {new_mode} (press S to toggle).")
+        return "break"
+
+    def _iter_inventory_container_rows(self) -> list[str]:
+        """Return container header row ids in current tree display order."""
+        if not hasattr(self, "inventory_tree"):
+            return []
+        tree = self.inventory_tree
+        ordered: list[str] = []
+
+        def walk(parent: str) -> None:
+            for row_id in tree.get_children(parent):
+                if row_id in self.inventory_container_refs:
+                    ordered.append(row_id)
+                # Recurse only into open groups so cycling lands on rows the
+                # user can actually see; collapsed groups are still surfaced
+                # via their own header.
+                if tree.item(row_id, "open"):
+                    walk(row_id)
+
+        walk("")
+        return ordered
+
+    def _on_inventory_cycle_container_key(self, _event: object = None) -> str:
+        """C key: jump focus to the next container header row, wrapping around."""
+        containers = self._iter_inventory_container_rows()
+        if not containers:
+            self.status_var.set("No container rows to jump to.")
+            return "break"
+        tree = self.inventory_tree
+        current = tree.focus()
+        if current in containers:
+            next_idx = (containers.index(current) + 1) % len(containers)
+        else:
+            # If the user is on an item row inside a container, move to the
+            # first container that comes after the current row in display order.
+            next_idx = 0
+            if current:
+                # Walk up to find the enclosing container header, then move to
+                # the next one in the list.
+                walker = current
+                while walker:
+                    if walker in containers:
+                        next_idx = (containers.index(walker) + 1) % len(containers)
+                        break
+                    walker = tree.parent(walker)
+        target = containers[next_idx]
+        self._tree_select_focus(tree, target)
+        return "break"
+
+    # Widget classes that legitimately consume printable keys so the global
+    # inventory shortcuts (S, C, Home, End) must NOT intercept them.
+    _GLOBAL_SHORTCUT_TYPING_CLASSES = {
+        "Entry", "TEntry",
+        "Spinbox", "TSpinbox",
+        "Text",
+        "TCombobox",  # editable combobox; readonly ones still report this class
+    }
+
+    def _on_global_inventory_shortcut(self, event) -> Optional[str]:
+        """Toplevel handler so the inventory shortcuts work even when focus is
+        on a button, the toolbar combobox or anywhere else inside the inventory
+        view. Returns None (continue propagation) when the inventory view is
+        not active or an editable widget owns the focus."""
+        if getattr(self, "active_view", None) != "inventory":
+            return None
+        if not hasattr(self, "inventory_tree"):
+            return None
+
+        # If the user is typing in the search box or any other text-input
+        # widget, don't steal their keystrokes.
+        try:
+            focused = self.focus_get()
+        except Exception:
+            focused = None
+        if focused is not None and focused is not self.inventory_tree:
+            try:
+                cls = focused.winfo_class()
+            except Exception:
+                cls = ""
+            if cls in self._GLOBAL_SHORTCUT_TYPING_CLASSES:
+                # Combobox readonly state should still allow the shortcut. Tk
+                # reports the same class for both, so check state to be safe.
+                if cls == "TCombobox":
+                    try:
+                        state = focused.state()
+                    except Exception:
+                        state = ()
+                    if "readonly" not in state and "disabled" not in state:
+                        return None
+                else:
+                    return None
+
+        keysym = event.keysym
+        # Build an event-like proxy whose .widget attribute is the inventory
+        # tree so the shared _on_tree_home/_on_tree_end handlers work.
+        class _Proxy:
+            widget = self.inventory_tree
+
+        if keysym in ("Home",):
+            self.inventory_tree.focus_set()
+            return self._on_tree_home(_Proxy())
+        if keysym in ("End",):
+            self.inventory_tree.focus_set()
+            return self._on_tree_end(_Proxy())
+        if keysym in ("s", "S"):
+            self.inventory_tree.focus_set()
+            return self._on_inventory_cycle_show_key(event)
+        if keysym in ("c", "C"):
+            self.inventory_tree.focus_set()
+            return self._on_inventory_cycle_container_key(event)
+        return None
+
     def _ask_split_quantity(self, item_name: str, current_quantity: int) -> Optional[int]:
         if current_quantity < 2:
             return None
@@ -3932,12 +4174,14 @@ class EditorGUI(tk.Tk):
         return result["value"]
 
     def _split_selected_inventory_stack(self) -> None:
-        selected = [row for row in self.inventory_tree.selection() if row in self.inventory_item_refs]
-        if len(selected) != 1:
-            messagebox.showinfo("Select one stack", "Select exactly one stackable item row to split. Container rows are ignored.")
+        selected_rows = [row for row in self.inventory_tree.selection() if row in self.inventory_item_refs]
+        if not selected_rows:
+            messagebox.showinfo(
+                "Select stack(s) to split",
+                "Select at least one inventory item row to split. Container header rows are ignored.",
+            )
             return
 
-        source, item_id, name = self.inventory_item_refs[selected[0]]
         save_path = Path(self.save_var.get())
         if not save_path.exists():
             messagebox.showerror("Save not found", f"{save_path} does not exist.")
@@ -3945,30 +4189,83 @@ class EditorGUI(tk.Tk):
 
         try:
             data = load_save(save_path)
-            items = get_items_list(data, source)
-            item = next((it for it in items if it.get("Id") == item_id), None)
-            if item is None:
-                raise ValueError(f"Could not find selected item Id {item_id!r}.")
-            ad = ((item.get("AdditionalData") or {}).get("_data") or {})
-            if "StackableComponent_quantity" not in ad:
-                raise ValueError("Selected item does not store a stack quantity and cannot be split.")
-            current_quantity = int(ad["StackableComponent_quantity"])
-            if current_quantity < 2:
-                raise ValueError("Selected stack must have at least 2 items to split.")
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Cannot split stack", f"{type(exc).__name__}: {exc}")
             return
 
-        split_quantity = self._ask_split_quantity(name, current_quantity)
-        if split_quantity is None:
+        # Classify each selected row as stackable (qty >= 2) or non-stackable.
+        stackable: list[dict[str, object]] = []
+        non_stackable_count = 0
+        for row in selected_rows:
+            source, item_id, name = self.inventory_item_refs[row]
+            try:
+                items = get_items_list(data, source)
+            except KeyError:
+                non_stackable_count += 1
+                continue
+            item = next((it for it in items if it.get("Id") == item_id), None)
+            if item is None:
+                non_stackable_count += 1
+                continue
+            ad = ((item.get("AdditionalData") or {}).get("_data") or {})
+            qty_raw = ad.get("StackableComponent_quantity")
+            try:
+                qty = int(qty_raw) if qty_raw is not None else 0
+            except (TypeError, ValueError):
+                qty = 0
+            if "StackableComponent_quantity" not in ad or qty < 2:
+                non_stackable_count += 1
+                continue
+            stackable.append(
+                {
+                    "source": source,
+                    "item_id": item_id,
+                    "name": name,
+                    "item": item,
+                    "quantity": qty,
+                }
+            )
+
+        if not stackable:
+            messagebox.showinfo("Split stack", "Non-stacked items ignored.")
             return
 
+        # Single-stack selection keeps the interactive slider dialog so the
+        # user can pick a custom split amount.
+        single_mode = len(selected_rows) == 1 and non_stackable_count == 0 and len(stackable) == 1
+
+        if single_mode:
+            entry = stackable[0]
+            split_quantity = self._ask_split_quantity(str(entry["name"]), int(entry["quantity"]))
+            if split_quantity is None:
+                return
+            split_plan = [(entry, int(split_quantity))]
+        else:
+            # Multi-select (or single selection mixed with skipped rows): split
+            # every stack in half, no dialog. floor(quantity / 2) keeps the
+            # original behaviour for odd counts (e.g. 7 -> original 4, new 3).
+            split_plan = [(entry, int(entry["quantity"]) // 2) for entry in stackable]
+
+        # Lookup catalog dims/names once so each split can find a free slot in
+        # the same container, with state carried over between splits via the
+        # mutated `data` dict.
         try:
             csv_path = Path(self.csv_var.get())
             dims = load_template_dims(csv_path)
             names = load_template_names(csv_path)
             containers = discover_containers(data, names)
-            parent_id = item.get("ParentId")
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Split failed", f"{type(exc).__name__}: {exc}")
+            return
+
+        results: list[dict[str, object]] = []
+        failures: list[tuple[str, str]] = []
+        for entry, split_qty in split_plan:
+            source = str(entry["source"])
+            item_id = str(entry["item_id"])
+            name = str(entry["name"])
+            item = entry["item"]
+            parent_id = item.get("ParentId") if isinstance(item, dict) else None
             container = next(
                 (c for c in containers if c.source == source and c.owner_item_id == parent_id),
                 None,
@@ -3976,16 +4273,29 @@ class EditorGUI(tk.Tk):
             grid_width = (
                 container.grid_width
                 if container and container.grid_width
-                else self._infer_grid_width_from_children(items, parent_id, dims)
+                else self._infer_grid_width_from_children(get_items_list(data, source), parent_id, dims)
             )
-            info = split_stack_item(
-                data,
-                source=source,
-                item_id=item_id,
-                split_quantity=split_quantity,
-                dims=dims,
-                grid_width=grid_width,
-            )
+            try:
+                info = split_stack_item(
+                    data,
+                    source=source,
+                    item_id=item_id,
+                    split_quantity=split_qty,
+                    dims=dims,
+                    grid_width=grid_width,
+                )
+            except Exception as exc:  # noqa: BLE001
+                failures.append((name, f"{type(exc).__name__}: {exc}"))
+                continue
+            info["display_name"] = name
+            results.append(info)
+
+        if not results:
+            detail = "\n".join(f"- {n}: {msg}" for n, msg in failures) or "No stacks were split."
+            messagebox.showerror("Split failed", detail)
+            return
+
+        try:
             backup = write_save(save_path, data, keep_backups=self._current_backup_keep())
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Split failed", f"{type(exc).__name__}: {exc}")
@@ -3993,17 +4303,40 @@ class EditorGUI(tk.Tk):
 
         if backup is not None:
             self.log.insert("end", f"Backup: {backup.name}\n")
-        pos_i, pos_j = info["position"]
-        self.log.insert(
-            "end",
-            f"Split stack: {name} moved {info['new_quantity']} to new stack "
-            f"{info['new_id']} at ({pos_i},{pos_j}); original now {info['original_quantity']}.\n",
-        )
+        for info in results:
+            pos_i, pos_j = info["position"]
+            self.log.insert(
+                "end",
+                f"Split stack: {info.get('display_name', '?')} moved {info['new_quantity']} to new stack "
+                f"{info['new_id']} at ({pos_i},{pos_j}); original now {info['original_quantity']}.\n",
+            )
+        if failures:
+            for name, msg in failures:
+                self.log.insert("end", f"Skipped {name}: {msg}\n")
         self.log.see("end")
         self._refresh_containers()
-        self.status_var.set(
-            f"Split {name}: new stack {info['new_quantity']}, original {info['original_quantity']}."
-        )
+
+        # User-facing summary messages per spec.
+        if single_mode:
+            first = results[0]
+            self.status_var.set(
+                f"Split {first.get('display_name', '?')}: new stack {first['new_quantity']}, "
+                f"original {first['original_quantity']}."
+            )
+        else:
+            split_count = len(results)
+            stack_word = "stack" if split_count == 1 else "stacks"
+            if non_stackable_count > 0:
+                item_word = "item" if non_stackable_count == 1 else "items"
+                messagebox.showinfo(
+                    "Split stack",
+                    f"Split {split_count} {stack_word} by half, {non_stackable_count} non-stacked {item_word} ignored.",
+                )
+                self.status_var.set(
+                    f"Split {split_count} {stack_word} by half; {non_stackable_count} non-stacked {item_word} ignored."
+                )
+            else:
+                self.status_var.set(f"Split {split_count} {stack_word} by half.")
 
     def _move_selected_inventory_items(self) -> None:
         """Move the currently selected inventory rows into a chosen container."""

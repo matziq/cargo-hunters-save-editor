@@ -124,6 +124,20 @@ Action buttons are color-coded so the consequence of each click is obvious at a 
 
 Use **Group by containers** to switch between the normal container-grouped view and a flat sortable list of all visible inventory items.
 
+### Keyboard shortcuts (Current Inventory tree)
+
+A reminder line above the inventory list shows the available shortcuts:
+
+| Key | Action |
+| --- | --- |
+| `S` | Cycle the **Show** selector between `Equipment` and `Items`. |
+| `C` | Jump focus to the next container header row (wraps around). |
+| `Home` | Jump to the first visible row. |
+| `End` | Jump to the last visible row (descending through open groups). |
+| `Delete` | Delete the selected item rows (same as the `Delete selected` button). |
+
+`Home` and `End` also work in the **Add Items** list for fast top/bottom navigation.
+
 ### Inventory controls
 
 | Control | What it does |
@@ -133,7 +147,7 @@ Use **Group by containers** to switch between the normal container-grouped view 
 | **Collapse all** | Collapses visible inventory containers and remembers that state. |
 | **Expand all** | Expands visible inventory containers and remembers that state. |
 | **Group by containers** | Toggles container grouping. Turn it off to show all visible inventory rows in one flat sortable list. |
-| **Split stack** | Splits one selected stackable item row into two stacks using a slider. |
+| **Split stack** | Splits stackable item rows. With one stack selected, a slider lets you pick the split amount. With multiple stacks selected, each is split in half automatically. Non-stacked rows in the selection are ignored. |
 | **Repair/refill selected** | Sets selected items to 100% condition/durability, refills known uses, and tops off known stack sizes. |
 | **Repair/refill/top off ALL** | Scans all non-shelter inventory/equipment items and repairs/refills/tops off everything with known max values. |
 | **Move selected…** | Move selected items into a chosen destination container. Children of moved containers travel with them; capacity is validated before the write. |
